@@ -46,13 +46,18 @@ generated keys are returned (as a map)." }
 
 (def ^{:private true :dynamic true
        :doc "The default entity naming strategy is to do nothing."}
-  *as-str* 
+  *as-str*
   identity)
 
 (def ^{:private true :dynamic true
        :doc "The default keyword naming strategy is to lowercase the entity."}
   *as-key*
   str/lower-case)
+
+(def ^{:private true :dynamic true
+       :doc "Keyword function to be used in resultset-seq, switch to entity to disable keywordizing."}
+   *keyword-fn*
+   keyword)
 
 (defn as-str
   "Given a naming strategy and a keyword, return the keyword as a
@@ -70,7 +75,7 @@ generated keys are returned (as a map)." }
   [f x]
   (if (instance? clojure.lang.Named x)
     x
-    (keyword (f (str x)))))
+    (*keyword-fn* (f (str x)))))
 
 (defn as-identifier
   "Given a keyword, convert it to a string using the current naming
@@ -122,17 +127,17 @@ generated keys are returned (as a map)." }
 
 (defn- parse-properties-uri [^URI uri]
   (let [host (.getHost uri)
-        port (if (pos? (.getPort uri)) (.getPort uri))
-        path (.getPath uri)
-        scheme (.getScheme uri)]
+	port (if (pos? (.getPort uri)) (.getPort uri))
+	path (.getPath uri)
+	scheme (.getScheme uri)]
     (merge
      {:subname (if port
-                 (str "//" host ":" port path)
-                 (str "//" host path))
+		 (str "//" host ":" port path)
+		 (str "//" host path))
       :subprotocol (subprotocols scheme scheme)}
      (if-let [user-info (.getUserInfo uri)]
-             {:user (first (str/split user-info #":"))
-              :password (second (str/split user-info #":"))}))))
+       {:user (first (str/split user-info #":"))
+	:password (second (str/split user-info #":"))}))))
 
 (defn- get-connection
   "Creates a connection to a database. db-spec is a map containing values
@@ -157,9 +162,9 @@ generated keys are returned (as a map)." }
     :name        (required) a String or javax.naming.Name
     :environment (optional) a java.util.Map"
   [{:keys [factory
-           classname subprotocol subname
-           datasource username password
-           name environment]
+	   classname subprotocol subname
+	   datasource username password
+	   name environment]
     :as db-spec}]
   (cond
     (instance? URI db-spec)
@@ -170,8 +175,8 @@ generated keys are returned (as a map)." }
     (factory (dissoc db-spec :factory))
     (and subprotocol subname)
     (let [url (format "jdbc:%s:%s" subprotocol subname)
-          etc (dissoc db-spec :classname :subprotocol :subname)
-          classname (or classname (classnames subprotocol))]
+	  etc (dissoc db-spec :classname :subprotocol :subname)
+	  classname (or classname (classnames subprotocol))]
       (clojure.lang.RT/loadClassForName classname)
       (DriverManager/getConnection url (as-properties etc)))
     (and datasource username password)
@@ -180,8 +185,8 @@ generated keys are returned (as a map)." }
     (.getConnection ^DataSource datasource)
     name
     (let [env (and environment (Hashtable. ^Map environment))
-          context (InitialContext. env)
-          ^DataSource datasource (.lookup context ^String name)]
+	  context (InitialContext. env)
+	  ^DataSource datasource (.lookup context ^String name)]
       (.getConnection datasource))
     :else
     (let [^String msg (format "db-spec %s is missing a required parameter" db-spec)]
@@ -204,10 +209,10 @@ generated keys are returned (as a map)." }
   (if (apply distinct? cols)
     cols
     (loop [[col-name :as new-cols] (seq cols)
-           unique-cols []]
+	   unique-cols []]
       (if (seq new-cols)
-        (recur (rest new-cols) (conj unique-cols (make-name-unique unique-cols col-name 1)))
-        unique-cols))))
+	(recur (rest new-cols) (conj unique-cols (make-name-unique unique-cols col-name 1)))
+	unique-cols))))
 
 (defn resultset-seq
   "Creates and returns a lazy sequence of maps corresponding to
@@ -217,22 +222,22 @@ generated keys are returned (as a map)." }
    N is a unique integer)."
   [^ResultSet rs]
     (let [rsmeta (.getMetaData rs)
-          idxs (range 1 (inc (.getColumnCount rsmeta)))
-          keys (->> idxs
-                 (map (fn [^Integer i] (.getColumnLabel rsmeta i)))
-                 make-cols-unique
-                 (map (comp keyword *as-key*)))
-          row-values (fn [] (map (fn [^Integer i] (.getObject rs i)) idxs))
-          ;; This used to use create-struct (on keys) and then struct to populate each row.
-          ;; That had the side effect of preserving the order of columns in each row. As
-          ;; part of JDBC-15, this was changed because structmaps are deprecated. We don't
-          ;; want to switch to records so we're using regular maps instead. We no longer
-          ;; guarantee column order in rows but using into {} should preserve order for up
-          ;; to 16 columns (because it will use a PersistentArrayMap). If someone is relying
-          ;; on the order-preserving behavior of structmaps, we can reconsider...
-          rows (fn thisfn []
-                 (when (.next rs)
-                   (cons (zipmap keys (row-values)) (lazy-seq (thisfn)))))]
+	  idxs (range 1 (inc (.getColumnCount rsmeta)))
+	  keys (->> idxs
+		    (map (fn [^Integer i] (.getColumnLabel rsmeta i)))
+		    make-cols-unique
+		    (map (comp *keyword-fn* *as-key*)))
+	  row-values (fn [] (map (fn [^Integer i] (.getObject rs i)) idxs))
+	  ;; This used to use create-struct (on keys) and then struct to populate each row.
+	  ;; That had the side effect of preserving the order of columns in each row. As
+	  ;; part of JDBC-15, this was changed because structmaps are deprecated. We don't
+	  ;; want to switch to records so we're using regular maps instead. We no longer
+	  ;; guarantee column order in rows but using into {} should preserve order for up
+	  ;; to 16 columns (because it will use a PersistentArrayMap). If someone is relying
+	  ;; on the order-preserving behavior of structmaps, we can reconsider...
+	  rows (fn thisfn []
+		 (when (.next rs)
+		   (cons (zipmap keys (row-values)) (lazy-seq (thisfn)))))]
       (rows)))
 
 (defn as-quoted-str
@@ -285,7 +290,9 @@ generated keys are returned (as a map)." }
    naming strategy is identity; the default keyword naming strategy is lower-case."
   [naming-strategy & body ]
   `(binding [*as-str* (if (map? ~naming-strategy) (or (:entity ~naming-strategy) identity) ~naming-strategy)
-             *as-key* (if (map? ~naming-strategy) (or (:keyword ~naming-strategy) str/lower-case))] ~@body))
+	     *as-key* (if (map? ~naming-strategy) (or (:keyword ~naming-strategy) str/lower-case))
+	     *keyword-fn* (if (map? ~naming-strategy) (or (:keyword-fn ~naming-strategy) keyword))]
+     ~@body))
 
 (defmacro with-quoted-identifiers
   "Evaluates body in the context of a simple quoting naming strategy."
