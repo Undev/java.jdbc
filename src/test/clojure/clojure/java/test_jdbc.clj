@@ -195,9 +195,18 @@
       (is (= #{"name" "appearance" "cost" "grade" "id"}
 	     (sql/with-naming-strategy {:entity identity :keyword-fn identity}
 	       (sql/with-query-results res ["SELECT * FROM fruit2"]
-		 (into #{} (keys (first res)))))))
+		 (into #{} (keys (first res))))))))))
 
-      )))
+(deftest test-with-connection-configurator
+  (doseq [db (test-specs)]
+    (sql/with-connection-configurator
+      (fn [^java.sql.Connection con]
+	(is (not (nil? con)))
+	con)
+      (sql/with-connection db
+	(create-test-table :fruit2 db)
+	(sql/do-prepared "INSERT INTO fruit2 ( name, appearance, cost, grade ) VALUES ( ?, ?, ?, ? )" ["test" "test" 1 1.0])
+	(is (= 1 (sql/with-query-results res ["SELECT * FROM fruit2"] (count res))))))))
 
 (deftest test-insert-rows
   (doseq [db (test-specs)]

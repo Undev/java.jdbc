@@ -59,6 +59,11 @@ generated keys are returned (as a map)." }
    *keyword-fn*
    keyword)
 
+(def ^{:private true :dynamic true
+       :doc "Keyword function to be used in resultset-seq, switch to entity to disable keywordizing."}
+   *connection-configurator*
+   identity)
+
 (defn as-str
   "Given a naming strategy and a keyword, return the keyword as a
    string per that naming strategy. Given (a naming strategy and)
@@ -166,31 +171,35 @@ generated keys are returned (as a map)." }
 	   datasource username password
 	   name environment]
     :as db-spec}]
-  (cond
-    (instance? URI db-spec)
-    (get-connection (parse-properties-uri db-spec))
-    (string? db-spec)
-    (get-connection (URI. db-spec))
-    factory
-    (factory (dissoc db-spec :factory))
-    (and subprotocol subname)
-    (let [url (format "jdbc:%s:%s" subprotocol subname)
-	  etc (dissoc db-spec :classname :subprotocol :subname)
-	  classname (or classname (classnames subprotocol))]
-      (clojure.lang.RT/loadClassForName classname)
-      (DriverManager/getConnection url (as-properties etc)))
-    (and datasource username password)
-    (.getConnection ^DataSource datasource ^String username ^String password)
-    datasource
-    (.getConnection ^DataSource datasource)
-    name
-    (let [env (and environment (Hashtable. ^Map environment))
-	  context (InitialContext. env)
-	  ^DataSource datasource (.lookup context ^String name)]
-      (.getConnection datasource))
-    :else
-    (let [^String msg (format "db-spec %s is missing a required parameter" db-spec)]
-      (throw (IllegalArgumentException. msg)))))
+  (let [conn
+	(cond
+	 (instance? URI db-spec)
+	 (get-connection (parse-properties-uri db-spec))
+	 (string? db-spec)
+	 (get-connection (URI. db-spec))
+	 factory
+	 (factory (dissoc db-spec :factory))
+	 (and subprotocol subname)
+	 (let [url (format "jdbc:%s:%s" subprotocol subname)
+	       etc (dissoc db-spec :classname :subprotocol :subname)
+	       classname (or classname (classnames subprotocol))]
+	   (clojure.lang.RT/loadClassForName classname)
+	   (DriverManager/getConnection url (as-properties etc)))
+	 (and datasource username password)
+	 (.getConnection ^DataSource datasource ^String username ^String password)
+	 datasource
+	 (.getConnection ^DataSource datasource)
+	 name
+	 (let [env (and environment (Hashtable. ^Map environment))
+	       context (InitialContext. env)
+	       ^DataSource datasource (.lookup context ^String name)]
+	   (.getConnection datasource))
+	 :else
+	 (let [^String msg (format "db-spec %s is missing a required parameter" db-spec)]
+	   (throw (IllegalArgumentException. msg))))]
+    (if (and conn *connection-configurator*)
+      (*connection-configurator* conn)
+      conn)))
 
 (defn- make-name-unique
   "Given a collection of column names and a new column name,
@@ -292,6 +301,13 @@ generated keys are returned (as a map)." }
   `(binding [*as-str* (if (map? ~naming-strategy) (or (:entity ~naming-strategy) identity) ~naming-strategy)
 	     *as-key* (if (map? ~naming-strategy) (or (:keyword ~naming-strategy) str/lower-case))
 	     *keyword-fn* (if (map? ~naming-strategy) (or (:keyword-fn ~naming-strategy) keyword))]
+     ~@body))
+
+(defmacro with-connection-configurator
+  "Evaluates body in the context of a connection configurator."
+  [conn-configurator & body ]
+  `(binding [*connection-configurator*
+	     (if ~conn-configurator ~conn-configurator identity)]
      ~@body))
 
 (defmacro with-quoted-identifiers
