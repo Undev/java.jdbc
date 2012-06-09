@@ -317,11 +317,21 @@ generated keys are returned (as a map)." }
 
 (defn with-connection*
   "Evaluates func in the context of a new connection to a database then
-  closes the connection."
+  closes the connection. Do now switch connection/level if we are already in transaction."
   [db-spec func]
-  (with-open [^java.sql.Connection con (get-connection db-spec)]
-    (binding [*db* (assoc *db* :connection con :level 0 :rollback (atom false))]
-      (func))))
+  (let [curr-level (:level *db*)
+	curr-conn (when (and curr-level (> curr-level 0) (:connection *db*))
+	       (:connection *db*))
+	wrap-with-open (not (and curr-conn (not (.isClosed curr-conn))))
+	conn (or curr-conn (get-connection db-spec))
+	;; if already in transaction, inc level to avoid starting a new one, else 0
+	level (if (and curr-level (> curr-level 0)) (inc curr-level) 0)]
+    (binding [*db* (assoc *db* :connection conn
+			  :level level :rollback (atom false))]
+    (if wrap-with-open
+      (with-open [^java.sql.Connection con conn]
+	(func))
+      (func)))))
 
 (defmacro with-connection
   "Evaluates body in the context of a new connection to a database then
@@ -380,11 +390,11 @@ generated keys are returned (as a map)." }
           (io!
            (.setAutoCommit con false)
            (try
-             (let [result (func)]
-               (if (rollback)
-                 (.rollback con)
-                 (.commit con))
-               result)
+            (let [result (func)]
+	      (if (rollback)
+		(.rollback con)
+		(.commit con))
+	      result)
              (catch Exception e
                (.rollback con)
                (throw-non-rte e))
