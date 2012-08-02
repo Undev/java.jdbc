@@ -330,6 +330,7 @@ generated keys are returned (as a map)." }
 			  :level level :rollback (atom false))]
     (if wrap-with-open
       (with-open [^java.sql.Connection con conn]
+	(println "[DEBUG]" con )
 	(func))
       (func)))))
 
@@ -509,6 +510,13 @@ generated keys are returned (as a map)." }
           (.addBatch stmt))
         (transaction* (fn [] (seq (.executeBatch stmt))))))))
 
+(defn do-unprepared
+  "Executes an SQL statement on the
+  open database connection."
+  [sql]
+  (with-open [^Statement stmt (.createStatement (connection))]
+    (transaction* (fn [] (.executeUpdate stmt sql)))))
+
 (defn create-table-ddl
   "Given a table name and column specs with an optional table-spec
    return the DDL string for creating a table based on that."
@@ -665,12 +673,12 @@ generated keys are returned (as a map)." }
                               "vector"
                               "[sql param*]"
                               (.getName sql-params-class)
-                              (pr-str sql-params))] 
+                              (pr-str sql-params))]
       (throw (IllegalArgumentException. msg))))
   (let [special (first sql-params)
         sql-is-first (string? special)
         options-are-first (map? special)
-        sql (cond sql-is-first special 
+        sql (cond sql-is-first special
                   options-are-first (second sql-params))
         params (vec (cond sql-is-first (rest sql-params)
                           options-are-first (rest (rest sql-params))
