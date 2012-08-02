@@ -330,7 +330,6 @@ generated keys are returned (as a map)." }
 			  :level level :rollback (atom false))]
     (if wrap-with-open
       (with-open [^java.sql.Connection con conn]
-	(println "[DEBUG]" con )
 	(func))
       (func)))))
 
@@ -511,8 +510,8 @@ generated keys are returned (as a map)." }
         (transaction* (fn [] (seq (.executeBatch stmt))))))))
 
 (defn do-unprepared
-  "Executes an SQL statement on the
-  open database connection."
+  "Executes plain SQL statement on the
+  open database connection. Returns update count."
   [sql]
   (with-open [^Statement stmt (.createStatement (connection))]
     (transaction* (fn [] (.executeUpdate stmt sql)))))
