@@ -182,6 +182,14 @@
       (sql/do-prepared "INSERT INTO fruit2 ( name, appearance, cost, grade ) VALUES ( ?, ?, ?, ? )" ["test" "test" 1 1.0] ["two" "two" 2 2.0])
       (is (= 2 (sql/with-query-results res ["SELECT * FROM fruit2"] (count res)))))))
 
+;;(deftest test-with-query-results-multi
+;;  (doseq [db (test-specs)]
+;;    (sql/with-connection db
+;;      (create-test-table :fruit2 db)
+;;      (sql/do-prepared "INSERT INTO fruit2 ( name, appearance, cost, grade ) VALUES ( 'test', 'test', 1, 1.0 )")
+;;      (sql/do-prepared "INSERT INTO fruit2 ( name, appearance, cost, grade ) VALUES ('test2', 'test2', 2, 2.0)")
+;;      (is (= [2 1] (into [] (sql/with-query-results res ["SELECT * FROM fruit2 \n SELECT * FROM fruit2 WHERE cost = 2 "] (count res))))))))
+
 (deftest test-with-naming-strategy
   (doseq [db (test-specs)]
     (sql/with-connection db

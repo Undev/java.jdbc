@@ -685,8 +685,21 @@ generated keys are returned (as a map)." }
         prepare-args (when (map? special) (flatten (seq special)))]
     (with-open [^PreparedStatement stmt (if (instance? PreparedStatement special) special (apply prepare-statement (connection) sql prepare-args))]
       (set-parameters stmt params)
-      (with-open [rset (.executeQuery stmt)]
-        (func (resultset-seq rset))))))
+      (let [got-results (.execute stmt)]
+        (if got-results
+          (do
+            (let [result (with-open [rset (.getResultSet stmt)]
+                                 (func (resultset-seq rset)))]
+               (loop [result-seq [] more-rsets (.getMoreResults stmt)]
+                 ;;(println ":::" result-seq result more-rsets)
+                 (if (not more-rsets)
+                   (if (seq result-seq)
+                     (doall result-seq)
+                     result)
+                   (do
+                     ;;(println (conj result-seq (func (resultset-seq more-rsets))))
+                     (recur (conj result-seq (func (resultset-seq more-rsets)))
+                            (.getMoreResults stmt))))))))))))
 
 (defmacro with-query-results
   "Executes a query, then evaluates body with results bound to a seq of the
@@ -699,6 +712,40 @@ generated keys are returned (as a map)." }
   See prepare-statement for supported options."
   [results sql-params & body]
   `(with-query-results* ~sql-params (fn [~results] ~@body)))
+
+(defn with-query-results-no-params*
+  "Executes a query, then evaluates func passing in a seq of the results as
+  an argument. The first argument is a vector containing either:
+    [sql & params] - a SQL query, followed by any parameters it needs
+    [stmt & params] - a PreparedStatement, followed by any parameters it needs
+                      (the PreparedStatement already contains the SQL query)
+    [options sql & params] - options and a SQL query for creating a
+                      PreparedStatement, follwed by any parameters it needs
+  See prepare-statement for supported options."
+  [sql-param func]
+  (let [sql sql-param]
+    (with-open [^Statement stmt (.createStatement (connection))]
+      (let [got-results (.execute stmt sql)]
+        (if got-results
+          (do
+            (let [result (with-open [rset (.getResultSet stmt)]
+                                 (func (resultset-seq rset)))]
+               (loop [result-seq [] more-rsets (.getMoreResults stmt)]
+                 ;;(println ":::" result-seq result more-rsets)
+                 (if (not more-rsets)
+                   (if (seq result-seq)
+                     (doall result-seq)
+                     result)
+                   (do
+                     ;;(println (conj result-seq (func (resultset-seq more-rsets))))
+                     (recur (conj result-seq (func (resultset-seq more-rsets)))
+                            (.getMoreResults stmt))))))))))))
+
+(defmacro with-query-results-no-params
+  "Executes a query, then evaluates body with results bound to a seq of the
+  results. sql is a SQL query, which will be executed in usual jdbc Statement (not a PreparedStatement)."
+  [results sql & body]
+  `(with-query-results-no-params* ~sql (fn [~results] ~@body)))
 
 (defn print-sql-exception
   "Prints the contents of an SQLException to *out*"
